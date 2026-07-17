@@ -5,7 +5,7 @@
  *   Browser (getUserMedia) ──► this server (ws://localhost:3000/stream)
  *                                    │ PCM audio
  *                                    ▼
- *                          AssemblyAI U3 Pro Streaming
+ *                        AssemblyAI Universal-3.5 Pro Realtime
  *                                    │ transcript + turn events
  *                                    ▼
  *                               OpenAI GPT-4o
@@ -47,7 +47,7 @@ const HTML = `<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Voice Agent — AssemblyAI Universal-3 Pro</title>
+  <title>Voice Agent — AssemblyAI Universal-3.5 Pro Realtime</title>
   <style>
     body { font-family: system-ui, sans-serif; max-width: 640px; margin: 60px auto; padding: 0 20px; }
     h1 { font-size: 1.4rem; }
@@ -64,7 +64,7 @@ const HTML = `<!DOCTYPE html>
   </style>
 </head>
 <body>
-  <h1>Voice Agent — AssemblyAI Universal-3 Pro Streaming</h1>
+  <h1>Voice Agent — AssemblyAI Universal-3.5 Pro Realtime</h1>
   <p id="status">Ready</p>
   <div id="transcript"></div>
   <button id="start">Start</button>
@@ -180,11 +180,10 @@ wss.on("connection", (browserWs) => {
   // Connect to AssemblyAI
   const aaiUrl =
     `wss://streaming.assemblyai.com/v3/ws` +
-    `?speech_model=u3-rt-pro` +
+    `?speech_model=universal-3-5-pro` +
     `&encoding=pcm_s16le` +
     `&sample_rate=16000` +
-    `&end_of_turn_confidence_threshold=0.4` +
-    `&min_end_of_turn_silence_when_confident=300` +
+    `&min_turn_silence=300` +
     `&max_turn_silence=1500` +
     `&token=${ASSEMBLYAI_API_KEY}`;
 

@@ -1,10 +1,10 @@
 /**
- * Node.js Voice Agent — AssemblyAI Universal-3 Pro Streaming
+ * Node.js Voice Agent — AssemblyAI Universal-3.5 Pro Realtime
  *
  * Terminal-based voice agent that:
  *  1. Captures mic audio via `mic`
- *  2. Streams PCM to AssemblyAI Universal-3 Pro WebSocket
- *  3. Detects end-of-turn via AssemblyAI's neural turn detection
+ *  2. Streams PCM to AssemblyAI Universal-3.5 Pro Realtime WebSocket
+ *  3. Detects end-of-turn via AssemblyAI's punctuation-based turn detection
  *  4. Generates a response with OpenAI GPT-4o
  *  5. Speaks the reply via ElevenLabs TTS
  *
@@ -31,15 +31,14 @@ const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || "JBFqnCBsd6RMkjVD
 
 const SAMPLE_RATE = 16000;
 
-// AssemblyAI Universal-3 Pro Streaming WebSocket URL
-// u3-rt-pro: 307ms P50 latency — 41% faster than Deepgram Nova-3 (516ms)
+// AssemblyAI Universal-3.5 Pro Realtime WebSocket URL
+// universal-3-5-pro: ~150ms P50 latency, punctuation-based turn detection
 const AAI_WS_URL =
   `wss://streaming.assemblyai.com/v3/ws` +
-  `?speech_model=u3-rt-pro` +
+  `?speech_model=universal-3-5-pro` +
   `&encoding=pcm_s16le` +
   `&sample_rate=${SAMPLE_RATE}` +
-  `&end_of_turn_confidence_threshold=0.4` +
-  `&min_end_of_turn_silence_when_confident=300` +
+  `&min_turn_silence=300` +
   `&max_turn_silence=1500` +
   `&token=${ASSEMBLYAI_API_KEY}`;
 
@@ -70,7 +69,7 @@ function connectToAssemblyAI() {
     const ws = new WebSocket(AAI_WS_URL);
 
     ws.on("open", () => {
-      console.log("Connected to AssemblyAI Universal-3 Pro Streaming");
+      console.log("Connected to AssemblyAI Universal-3.5 Pro Realtime");
       resolve(ws);
     });
 
@@ -214,7 +213,7 @@ function streamToFile(readable, path) {
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
-  console.log("Voice Agent — AssemblyAI Universal-3 Pro + OpenAI GPT-4o + ElevenLabs");
+  console.log("Voice Agent — AssemblyAI Universal-3.5 Pro Realtime + OpenAI GPT-4o + ElevenLabs");
   console.log("Press Ctrl+C to quit.\n");
 
   aaiWs = await connectToAssemblyAI();
