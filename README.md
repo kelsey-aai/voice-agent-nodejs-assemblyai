@@ -1,26 +1,27 @@
-# Node.js voice agent with AssemblyAI Universal-3.5 Pro Realtime
+# Node.js voice agent with AssemblyAI Universal-3.6 Pro Realtime
 
-Build a real-time voice agent in **Node.js** using the **AssemblyAI Universal-3.5 Pro Realtime model** (`universal-3-5-pro`) for speech-to-text — no Python required, no heavy framework dependencies.
+Build a real-time voice agent in **Node.js** using the **AssemblyAI Universal-3.6 Pro Realtime model** (`universal-3-6-pro`) for speech-to-text — no Python required, no heavy framework dependencies.
 
 Two modes in one repo:
 
 1. **Terminal agent** (`src/agent.js`) — mic input via `mic`, plays TTS audio in your terminal
 2. **Browser server** (`src/server.js`) — Node.js WebSocket server with a browser UI using `getUserMedia`
 
-## Why AssemblyAI Universal-3.5 Pro Realtime for Node.js?
+## Why AssemblyAI Universal-3.6 Pro Realtime for Node.js?
 
-| Metric | AssemblyAI Universal-3.5 Pro Realtime | Deepgram Flux |
+| Metric | AssemblyAI Universal-3.6 Pro Realtime | Deepgram Flux |
 |--------|---------------------------------------|---------------|
-| Pooled WER (real agent conversations) | **6.99%** | 15.58% |
-| P50 latency (partial + final) | **~150 ms** | — |
-| Punctuation-based turn detection | ✅ | ❌ (VAD only) |
+| EN Word error rate (voice-agent benchmark) | **5.19%** | 13.50% |
+| Median time to final transcript (Pipecat) | **307 ms** | — |
+| Turn detection combining semantic context and voice activity | ✅ | ❌ (VAD only) |
 | Context Carryover | ✅ | ❌ |
 | Mid-session prompting | ✅ | ❌ |
-| Node.js WebSocket (`ws`) | ✅ | ✅ |
 
-*WER figures from [Pipecat's open STT benchmark](https://github.com/pipecat-ai/stt-benchmark) of real agent conversations.*
+*WER figures from AssemblyAI's English voice-agent benchmark of 12,460 scripted voice-agent scenarios; latency from [Pipecat's open STT benchmark](https://github.com/pipecat-ai/stt-benchmark) (time from end of speech to final transcript).*
 
-Universal-3.5 Pro Realtime's punctuation-based turn detection eliminates the need for a separate VAD library — the model checks for terminal punctuation after a short silence to decide when a speaker has actually finished, not just when they've gone quiet.
+Universal-3.6 Pro Realtime's turn detection eliminates the need for a separate VAD library — the model combines semantic context with voice activity to decide when a speaker has actually finished, not just when they've gone quiet.
+
+> **Heads up on model IDs:** this repo uses `universal-3-6-pro`, the current streaming default. `universal-3-5-pro` stays available if you need to pin the previous model; if you're still on the legacy `u3-rt-pro` ID, switch to `universal-3-6-pro`.
 
 ## Architecture
 
@@ -31,7 +32,7 @@ Terminal mode:
 Browser mode:
   getUserMedia → ScriptProcessor → PCM s16le → ws://server/stream
                                                      │
-                                     AssemblyAI Universal-3.5 Pro Realtime
+                                     AssemblyAI Universal-3.6 Pro Realtime
                                                      │ Turn event
                                                OpenAI GPT-4o
                                                      │ text
@@ -70,11 +71,11 @@ npm run server
 ```js
 const AAI_WS_URL =
   `wss://streaming.assemblyai.com/v3/ws` +
-  `?speech_model=universal-3-5-pro` +
-  `&encoding=pcm_s16le` +              // raw 16-bit signed little-endian PCM
+  `?speech_model=universal-3-6-pro` +
+  `&encoding=pcm_s16le` +
   `&sample_rate=16000` +
-  `&min_turn_silence=300` +           // ms of silence before the speculative end-of-turn check
-  `&max_turn_silence=1500` +          // hard ceiling: turn ends after this much silence regardless
+  `&min_turn_silence=300` +   // ms of silence before the speculative end-of-turn check
+  `&max_turn_silence=1500` +  // hard ceiling: turn ends after this much silence regardless
   `&token=${ASSEMBLYAI_API_KEY}`;
 ```
 
@@ -124,13 +125,13 @@ processor.onaudioprocess = (e) => {
 ```js
 const micStream = micInstance.getAudioStream();
 micStream.on("data", (chunk) => {
-  aaiWs.send(chunk); // raw PCM s16le bytes — no conversion needed
+  aaiWs.send(chunk); // raw PCM s16le bytes
 });
 ```
 
 ## Tuning turn detection
 
-Universal-3.5 Pro Realtime uses punctuation-based end-of-turn detection. Steer it with a high-level `mode` preset, then fine-tune the two silence windows:
+Universal-3.6 Pro Realtime uses end-of-turn detection that combines semantic context with voice activity. Steer it with a high-level `mode` preset, then fine-tune the two silence windows:
 
 | Parameter | Default | Lower → | Higher → |
 |-----------|---------|---------|---------|
@@ -138,7 +139,7 @@ Universal-3.5 Pro Realtime uses punctuation-based end-of-turn detection. Steer i
 | `min_turn_silence` | 300 ms | Snappier turns | Fewer split entities (e.g. emails) |
 | `max_turn_silence` | 1500 ms | Faster cutoff | More thinking time for deliberate speakers |
 
-> Note: `end_of_turn_confidence_threshold` does **not** apply to Universal-3.5 Pro Realtime — it belongs to the older `universal-streaming` models. Turn detection here is punctuation-based, controlled by the silence windows above.
+> Note: `end_of_turn_confidence_threshold` does **not** apply to Universal-3.6 Pro Realtime — it belongs to the older `universal-streaming` models. Turn detection here is handled by the model, controlled by the silence windows above.
 
 ## Keyterm prompting (mid-session)
 
@@ -147,7 +148,18 @@ Inject domain-specific vocabulary after the session starts without restarting:
 ```js
 ws.send(JSON.stringify({
   type: "UpdateConfiguration",
-  keyterms: ["AssemblyAI", "Universal-3.5 Pro Realtime", "your-product-name"],
+  keyterms: ["AssemblyAI", "Universal-3.6 Pro Realtime", "your-product-name"],
+}));
+```
+
+## Conversation context (mid-session)
+
+Universal-3.6 Pro Realtime can transcribe each user turn in the context of what your agent just said — after your agent asks a question, the model is primed for the answer, which sharpens short replies and spelled-out entities. Push your agent's last reply with the same `UpdateConfiguration` message after each agent turn (both `src/agent.js` and `src/server.js` do this):
+
+```js
+ws.send(JSON.stringify({
+  type: "UpdateConfiguration",
+  agent_context: "Thanks! What's the email address on your account?",
 }));
 ```
 
@@ -167,33 +179,35 @@ npm run server
 
 The browser server is stateless per-connection — each WebSocket session has its own AssemblyAI connection and conversation history.
 
-## Related tutorials
-
-- [Tutorial 05: raw WebSocket voice agent (Python)](../05-websocket-universal-3-pro) — the same pattern in Python, useful for comparing the two implementations
-- [Tutorial 04: Twilio + Universal-3 Pro Streaming](../04-twilio-universal-3-pro) — add phone call support to a Node.js-style architecture
-- [Tutorial 01: LiveKit + Universal-3 Pro Streaming](../01-livekit-universal-3-pro) — production-grade Python framework if you need managed WebRTC infrastructure
-
 ## Resources
 
-- [AssemblyAI Universal Streaming docs](https://www.assemblyai.com/docs/speech-to-text/universal-streaming)
-- [AssemblyAI Streaming API reference](https://www.assemblyai.com/docs/api-reference/streaming)
+- [Universal-3.6 Pro Realtime streaming API reference](https://www.assemblyai.com/docs/api-reference/streaming-api/universal-3-pro-streaming)
 - [AssemblyAI Node.js SDK](https://github.com/AssemblyAI/assemblyai-node-sdk)
+- [AssemblyAI Playground](https://www.assemblyai.com/playground)
 - [ws — Node.js WebSocket library](https://github.com/websockets/ws)
 
 ---
 
 <div class="blog-cta_component">
-  <div class="blog-cta_title">Build a Node.js voice agent today</div>
+  <div class="blog-cta_title">Build a Node.js voice agent in 15 minutes</div>
   <div class="blog-cta_rt w-richtext">
-    <p>Sign up for a free AssemblyAI account and connect to Universal-3.5 Pro Realtime from your Node.js app in under 15 minutes.</p>
+    <p>Connect to Universal-3.6 Pro Realtime over a plain WebSocket from Node.js — no SDK, no framework, built-in turn detection and context carryover.</p>
   </div>
-  <a href="https://www.assemblyai.com/dashboard/signup" class="button w-button">Start building</a>
+  <a href="https://www.assemblyai.com/dashboard/signup" class="button w-button">Sign up free</a>
 </div>
 
 <div class="blog-cta_component">
-  <div class="blog-cta_title">Experiment with real-time turn detection</div>
+  <div class="blog-cta_title">Watch turn detection live</div>
   <div class="blog-cta_rt w-richtext">
-    <p>Try streaming transcription in our Playground and observe how punctuation and silence handling shape turn boundaries in real time. Compare behaviors across Universal-3.5 Pro Realtime and Universal-streaming models.</p>
+    <p>Stream audio through Universal-3.6 Pro Realtime in the Playground and see partial transcripts, turn detection, and context carryover as they happen.</p>
   </div>
-  <a href="https://www.assemblyai.com/playground" class="button w-button">Open playground</a>
+  <a href="https://www.assemblyai.com/playground" class="button w-button">Try playground</a>
+</div>
+
+<div class="blog-cta_component">
+  <div class="blog-cta_title">Start streaming from Node.js free</div>
+  <div class="blog-cta_rt w-richtext">
+    <p>Get a free AssemblyAI account and connect to Universal-3.6 Pro Realtime from your Node.js app in under 15 minutes — $0.45/hr, keyterm prompting included, no credit card.</p>
+  </div>
+  <a href="https://www.assemblyai.com/dashboard/signup" class="button w-button">Sign up free</a>
 </div>

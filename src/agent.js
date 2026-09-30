@@ -1,10 +1,10 @@
 /**
- * Node.js Voice Agent — AssemblyAI Universal-3.5 Pro Realtime
+ * Node.js Voice Agent — AssemblyAI Universal-3.6 Pro Realtime
  *
  * Terminal-based voice agent that:
  *  1. Captures mic audio via `mic`
- *  2. Streams PCM to AssemblyAI Universal-3.5 Pro Realtime WebSocket
- *  3. Detects end-of-turn via AssemblyAI's punctuation-based turn detection
+ *  2. Streams PCM to AssemblyAI Universal-3.6 Pro Realtime WebSocket
+ *  3. Detects end-of-turn via AssemblyAI's model-based turn detection (semantic context + voice activity)
  *  4. Generates a response with OpenAI GPT-4o
  *  5. Speaks the reply via ElevenLabs TTS
  *
@@ -31,11 +31,11 @@ const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || "JBFqnCBsd6RMkjVD
 
 const SAMPLE_RATE = 16000;
 
-// AssemblyAI Universal-3.5 Pro Realtime WebSocket URL
-// universal-3-5-pro: ~150ms P50 latency, punctuation-based turn detection
+// AssemblyAI Universal-3.6 Pro Realtime WebSocket URL
+// universal-3-6-pro: turn detection combines semantic context with voice activity
 const AAI_WS_URL =
   `wss://streaming.assemblyai.com/v3/ws` +
-  `?speech_model=universal-3-5-pro` +
+  `?speech_model=universal-3-6-pro` +
   `&encoding=pcm_s16le` +
   `&sample_rate=${SAMPLE_RATE}` +
   `&min_turn_silence=300` +
@@ -69,7 +69,7 @@ function connectToAssemblyAI() {
     const ws = new WebSocket(AAI_WS_URL);
 
     ws.on("open", () => {
-      console.log("Connected to AssemblyAI Universal-3.5 Pro Realtime");
+      console.log("Connected to AssemblyAI Universal-3.6 Pro Realtime");
       resolve(ws);
     });
 
@@ -99,6 +99,12 @@ function connectToAssemblyAI() {
 
           const reply = await generateResponse(utterance);
           console.log(`Assistant: ${reply}`);
+
+          // Conversation context: prime the model with the agent's last reply
+          // so the next user turn is transcribed in context
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: "UpdateConfiguration", agent_context: reply }));
+          }
 
           await speak(reply);
 
@@ -213,7 +219,7 @@ function streamToFile(readable, path) {
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
-  console.log("Voice Agent — AssemblyAI Universal-3.5 Pro Realtime + OpenAI GPT-4o + ElevenLabs");
+  console.log("Voice Agent — AssemblyAI Universal-3.6 Pro Realtime + OpenAI GPT-4o + ElevenLabs");
   console.log("Press Ctrl+C to quit.\n");
 
   aaiWs = await connectToAssemblyAI();
