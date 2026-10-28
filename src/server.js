@@ -11,10 +11,10 @@
  *                               OpenAI GPT-4o
  *                                    │ text
  *                                    ▼
- *                            ElevenLabs TTS → audio
- *                                    │
+ *                   AssemblyAI Text-to-Speech (one session per browser)
+ *                                    │ raw 24 kHz 16-bit PCM, binary WS messages
  *                                    ▼
- *                         Browser (AudioContext playback)
+ *                     Browser (Web Audio playback, barge-in)
  *
  * Run: node src/server.js
  * Open: http://localhost:3000
@@ -26,19 +26,17 @@ import { fileURLToPath } from "url";
 import { dirname } from "path";
 import WebSocket, { WebSocketServer } from "ws";
 import OpenAI from "openai";
-import { ElevenLabsClient } from "elevenlabs";
+import { AssemblyAI } from "assemblyai";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const ASSEMBLYAI_API_KEY = process.env.ASSEMBLYAI_API_KEY;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
-const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || "JBFqnCBsd6RMkjVDRZzb";
 
 const PORT = process.env.PORT || 3000;
 
 const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
-const elevenlabs = new ElevenLabsClient({ apiKey: ELEVENLABS_API_KEY });
+const client = new AssemblyAI({ apiKey: ASSEMBLYAI_API_KEY });
 
 // ── Serve the browser UI ──────────────────────────────────────────────────────
 
@@ -79,6 +77,35 @@ const HTML = `<!DOCTYPE html>
     let ws, mediaStream, audioContext, processor, source;
     let partialEl = null;
 
+    // Playback of the agent's voice: raw 24 kHz 16-bit PCM, scheduled chunk after chunk
+    let playCtx = null;
+    let playAt = 0;
+    const scheduled = new Set();
+
+    function playPcm(arrayBuffer) {
+      const pcm = new Int16Array(arrayBuffer);
+      const buffer = playCtx.createBuffer(1, pcm.length, 24000);
+      buffer.copyToChannel(Float32Array.from(pcm, (s) => s / 32768), 0);
+
+      const src = playCtx.createBufferSource();
+      src.buffer = buffer;
+      src.connect(playCtx.destination);
+      playAt = Math.max(playAt, playCtx.currentTime); // schedule after the previous chunk
+      src.start(playAt);
+      playAt += buffer.duration;
+      scheduled.add(src);
+      src.onended = () => scheduled.delete(src);
+    }
+
+    // Barge-in: drop the audio that is already scheduled
+    function stopPlayback() {
+      for (const src of scheduled) {
+        try { src.stop(); } catch (e) { /* already finished */ }
+      }
+      scheduled.clear();
+      if (playCtx) playAt = playCtx.currentTime;
+    }
+
     function appendLine(text, cls) {
       if (partialEl) { partialEl.remove(); partialEl = null; }
       const span = document.createElement('span');
@@ -94,7 +121,9 @@ const HTML = `<!DOCTYPE html>
     }
 
     startBtn.addEventListener('click', async () => {
-      mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      playCtx = new AudioContext();
+      await playCtx.resume(); // inside the click handler, so the browser allows audio
+      mediaStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true } });
       audioContext = new AudioContext({ sampleRate: 16000 });
       source = audioContext.createMediaStreamSource(mediaStream);
 
@@ -120,20 +149,12 @@ const HTML = `<!DOCTYPE html>
       ws.onclose = () => statusEl.textContent = 'Disconnected';
 
       ws.onmessage = (e) => {
+        if (e.data instanceof ArrayBuffer) { playPcm(e.data); return; } // agent audio
         const msg = JSON.parse(e.data);
+        if (msg.type === 'interrupt') { stopPlayback(); return; }
         if (msg.type === 'partial') { updatePartial(msg.text); return; }
         if (msg.type === 'user') { appendLine('You: ' + msg.text, 'user'); return; }
         if (msg.type === 'assistant') { appendLine('AI: ' + msg.text, 'assistant'); return; }
-        if (msg.type === 'audio') {
-          // Decode base64 MP3 and play
-          const binary = atob(msg.data);
-          const bytes = new Uint8Array(binary.length);
-          for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-          audioContext.decodeAudioData(bytes.buffer, (buf) => {
-            const src = audioContext.createBufferSource();
-            src.buffer = buf; src.connect(audioContext.destination); src.start();
-          });
-        }
       };
 
       startBtn.disabled = true;
@@ -146,6 +167,8 @@ const HTML = `<!DOCTYPE html>
       source?.disconnect();
       mediaStream?.getTracks().forEach(t => t.stop());
       audioContext?.close();
+      stopPlayback();
+      playCtx?.close();
       startBtn.disabled = false;
       stopBtn.disabled = true;
       statusEl.textContent = 'Stopped';
@@ -165,8 +188,25 @@ const httpServer = createServer((req, res) => {
 
 const wss = new WebSocketServer({ server: httpServer, path: "/stream" });
 
-wss.on("connection", (browserWs) => {
+wss.on("connection", async (browserWs) => {
   console.log("Browser connected");
+
+  // Speak each reply to the browser that asked for it.
+  // One text-to-speech session per browser connection; the server keeps the API key.
+  const tts = client.tts.session({
+    voiceId: "49c443a4-8a1d-5f7e-b70b-98bdbd9823c3", // Audrey
+    language: "english",
+  });
+  let speaking = false; // a reply is being synthesized for this browser
+
+  // Barge-in: the user talks over the agent
+  function bargeIn() {
+    tts.cancel(); // stops synthesis and ends the speak() loop at once
+    speaking = false;
+    if (browserWs.readyState === WebSocket.OPEN) {
+      browserWs.send(JSON.stringify({ type: "interrupt" })); // page drops scheduled audio
+    }
+  }
 
   const messages = [
     {
@@ -187,7 +227,7 @@ wss.on("connection", (browserWs) => {
     `&max_turn_silence=1500` +
     `&token=${ASSEMBLYAI_API_KEY}`;
 
-  const aaiWs = new WebSocket(aaiUrl);
+  const aaiWs = new WebSocket(aaiUrl, { headers: { Authorization: ASSEMBLYAI_API_KEY } });
 
   aaiWs.on("open", () => console.log("AssemblyAI connected"));
 
@@ -200,6 +240,12 @@ wss.on("connection", (browserWs) => {
       return;
     }
 
+    // Barge-in check, before the end_of_turn branch
+    if (msg.type === "Turn" && speaking) {
+      const words = msg.transcript.split(/\s+/).filter(Boolean).length;
+      if (words >= 2) bargeIn(); // ignore one-word backchannels like "mhm"
+    }
+
     if (msg.type === "Turn") {
       if (msg.transcript && !msg.end_of_turn) {
         // Partial transcript — update UI in real-time
@@ -209,7 +255,7 @@ wss.on("connection", (browserWs) => {
 
       if (msg.end_of_turn) {
         const utterance = msg.transcript?.trim();
-        if (!utterance) return;
+        if (!utterance || speaking) return; // empty, or a backchannel while the agent talks
 
         browserWs.send(JSON.stringify({ type: "user", text: utterance }));
 
@@ -232,18 +278,18 @@ wss.on("connection", (browserWs) => {
           aaiWs.send(JSON.stringify({ type: "UpdateConfiguration", agent_context: reply }));
         }
 
-        // TTS via ElevenLabs — stream audio back as base64
-        const audioStream = await elevenlabs.generate({
-          voice: ELEVENLABS_VOICE_ID,
-          text: reply,
-          model_id: "eleven_turbo_v2_5",
-          output_format: "mp3_44100_128",
-        });
-
-        const chunks = [];
-        for await (const chunk of audioStream) chunks.push(chunk);
-        const audioBase64 = Buffer.concat(chunks).toString("base64");
-        browserWs.send(JSON.stringify({ type: "audio", data: audioBase64 }));
+        // AssemblyAI Text-to-Speech: forward each chunk as a binary message
+        speaking = true;
+        try {
+          for await (const chunk of tts.speak(reply)) {
+            if (browserWs.readyState !== WebSocket.OPEN) break;
+            browserWs.send(chunk); // binary message: raw 24 kHz 16-bit PCM
+          }
+        } catch (err) {
+          console.error("TTS error:", err.message);
+        } finally {
+          speaking = false;
+        }
       }
     }
   });
@@ -258,10 +304,21 @@ wss.on("connection", (browserWs) => {
   browserWs.on("close", () => {
     console.log("Browser disconnected");
     aaiWs.close();
+    clearInterval(keepAlive);
+    tts.close().catch(() => {}); // sends Terminate and waits for the session summary
   });
 
   aaiWs.on("error", (err) => console.error("AssemblyAI error:", err.message));
   browserWs.on("error", (err) => console.error("Browser WS error:", err.message));
+
+  // Open the text-to-speech session; it closes after two idle minutes, so keep it alive
+  const keepAlive = setInterval(() => tts.keepAlive(), 60_000);
+  try {
+    await tts.connect(); // waits for the Begin frame
+  } catch (err) {
+    console.error("TTS connect error:", err.message);
+    browserWs.close();
+  }
 });
 
 // ── Start ─────────────────────────────────────────────────────────────────────

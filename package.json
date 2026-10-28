@@ -1,7 +1,7 @@
 {
   "name": "voice-agent-nodejs-assemblyai",
   "version": "1.0.0",
-  "description": "Node.js voice agent using AssemblyAI Universal-3.6 Pro Realtime for real-time STT",
+  "description": "Node.js voice agent using AssemblyAI Universal-3.6 Pro Realtime for real-time STT and AssemblyAI Text-to-Speech for the agent's voice",
   "main": "src/agent.js",
   "type": "module",
   "scripts": {
@@ -11,8 +11,8 @@
     "dev:server": "node --watch src/server.js"
   },
   "dependencies": {
+    "assemblyai": "^4.42.0",
     "dotenv": "^16.4.5",
-    "elevenlabs": "^1.3.0",
     "mic": "^2.1.2",
     "openai": "^4.52.0",
     "ws": "^8.18.0"
@@ -27,7 +27,7 @@
     "universal-3-6-pro",
     "websocket",
     "openai",
-    "elevenlabs",
+    "text-to-speech",
     "real-time"
   ],
   "license": "MIT"
