@@ -1,9 +1,9 @@
 /**
- * Node.js Voice Agent — AssemblyAI Universal-3.6 Pro Realtime
+ * Node.js Voice Agent — AssemblyAI STT 3.7 Realtime Agent
  *
  * Terminal-based voice agent that:
  *  1. Captures mic audio via `mic`
- *  2. Streams PCM to AssemblyAI Universal-3.6 Pro Realtime WebSocket
+ *  2. Streams PCM to AssemblyAI STT 3.7 Realtime Agent WebSocket
  *  3. Detects end-of-turn via AssemblyAI's model-based turn detection (semantic context + voice activity)
  *  4. Generates a response with OpenAI GPT-4o
  *  5. Speaks the reply with AssemblyAI Text-to-Speech (assemblyai-tts-1), played through SoX
@@ -29,16 +29,15 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
 const SAMPLE_RATE = 16000;
 
-// AssemblyAI Universal-3.6 Pro Realtime WebSocket URL
-// universal-3-6-pro: turn detection combines semantic context with voice activity
+// AssemblyAI STT 3.7 Realtime Agent WebSocket URL
+// assemblyai-stt-3-7-realtime-agent: the speech model built for voice agents.
+// The API key goes in the Authorization header (see connectToAssemblyAI);
+// the `token` query param is only for temporary tokens.
 const AAI_WS_URL =
   `wss://streaming.assemblyai.com/v3/ws` +
-  `?speech_model=universal-3-6-pro` +
+  `?speech_model=assemblyai-stt-3-7-realtime-agent` +
   `&encoding=pcm_s16le` +
-  `&sample_rate=${SAMPLE_RATE}` +
-  `&min_turn_silence=300` +
-  `&max_turn_silence=1500` +
-  `&token=${ASSEMBLYAI_API_KEY}`;
+  `&sample_rate=${SAMPLE_RATE}`;
 
 const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
 
@@ -65,7 +64,7 @@ function connectToAssemblyAI() {
     const ws = new WebSocket(AAI_WS_URL, { headers: { Authorization: ASSEMBLYAI_API_KEY } });
 
     ws.on("open", () => {
-      console.log("Connected to AssemblyAI Universal-3.6 Pro Realtime");
+      console.log("Connected to AssemblyAI STT 3.7 Realtime Agent");
       resolve(ws);
     });
 
@@ -187,7 +186,7 @@ async function generateResponse(userText) {
 const client = new AssemblyAI({ apiKey: ASSEMBLYAI_API_KEY });
 
 const tts = client.tts.session({
-  voiceId: "49c443a4-8a1d-5f7e-b70b-98bdbd9823c3", // Audrey
+  voiceId: "aai-kyla", // the default English voice; browse others at assemblyai.com/docs/tts/voices
   language: "english",
 });
 
@@ -222,7 +221,7 @@ function bargeIn() {
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
-  console.log("Voice Agent — AssemblyAI Universal-3.6 Pro Realtime + OpenAI GPT-4o + AssemblyAI Text-to-Speech");
+  console.log("Voice Agent — AssemblyAI STT 3.7 Realtime Agent + OpenAI GPT-4o + AssemblyAI Text-to-Speech");
   console.log("Use headphones so the mic doesn't hear the agent. Press Ctrl+C to quit.\n");
 
   await tts.connect(); // waits for the Begin frame

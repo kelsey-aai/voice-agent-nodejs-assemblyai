@@ -5,7 +5,7 @@
  *   Browser (getUserMedia) ──► this server (ws://localhost:3000/stream)
  *                                    │ PCM audio
  *                                    ▼
- *                        AssemblyAI Universal-3.6 Pro Realtime
+ *                        AssemblyAI STT 3.7 Realtime Agent
  *                                    │ transcript + turn events
  *                                    ▼
  *                               OpenAI GPT-4o
@@ -45,7 +45,7 @@ const HTML = `<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Voice Agent — AssemblyAI Universal-3.6 Pro Realtime</title>
+  <title>Voice Agent — AssemblyAI STT 3.7 Realtime Agent</title>
   <style>
     body { font-family: system-ui, sans-serif; max-width: 640px; margin: 60px auto; padding: 0 20px; }
     h1 { font-size: 1.4rem; }
@@ -62,7 +62,7 @@ const HTML = `<!DOCTYPE html>
   </style>
 </head>
 <body>
-  <h1>Voice Agent — AssemblyAI Universal-3.6 Pro Realtime</h1>
+  <h1>Voice Agent — AssemblyAI STT 3.7 Realtime Agent</h1>
   <p id="status">Ready</p>
   <div id="transcript"></div>
   <button id="start">Start</button>
@@ -194,7 +194,7 @@ wss.on("connection", async (browserWs) => {
   // Speak each reply to the browser that asked for it.
   // One text-to-speech session per browser connection; the server keeps the API key.
   const tts = client.tts.session({
-    voiceId: "49c443a4-8a1d-5f7e-b70b-98bdbd9823c3", // Audrey
+    voiceId: "aai-kyla", // the default English voice; browse others at assemblyai.com/docs/tts/voices
     language: "english",
   });
   let speaking = false; // a reply is being synthesized for this browser
@@ -220,12 +220,9 @@ wss.on("connection", async (browserWs) => {
   // Connect to AssemblyAI
   const aaiUrl =
     `wss://streaming.assemblyai.com/v3/ws` +
-    `?speech_model=universal-3-6-pro` +
+    `?speech_model=assemblyai-stt-3-7-realtime-agent` +
     `&encoding=pcm_s16le` +
-    `&sample_rate=16000` +
-    `&min_turn_silence=300` +
-    `&max_turn_silence=1500` +
-    `&token=${ASSEMBLYAI_API_KEY}`;
+    `&sample_rate=16000`;
 
   const aaiWs = new WebSocket(aaiUrl, { headers: { Authorization: ASSEMBLYAI_API_KEY } });
 
